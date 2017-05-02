@@ -2,26 +2,47 @@
 .PHONY: test lint todo
 
 clean:
-	# Remove files not in source control
-	find . -type f -name "*.pyc" -delete
+	@echo '💩 CleanUp'
+	@find . -type f -name "*.pyc" -delete
+	@rm -f .coverage
+	@rm -rf .cache __pycache__
 
 todo:
 	# Look for areas of the code that need updating when some event has taken place
 	grep -rnH TODO
 
+## Python
 test:
-	pytest
-
+	py.test
 lint:
 	flake8 .
 
-## Install / Upgrade
+## Django
+serve:
+	python manage.py runserver
+migrate:
+	python manage.py migrate
+migrations:
+	python manage.py makemigrations $(app)
+su:
+	python manage.py createsuperuser
+check:
+	python manage.py check
+shell:
+	python manage.py shell
+
+## Dependencies
 install:
-	pip install -r requirements.txt
+	@echo '✅ Installing dependencies'
+	@pip install -r requirements.txt
 
 upgrade:
-	pip install --upgrade -r requirements.txt
+	@echo '✨ Upgrading dependencies'
+	@pip install --upgrade -r requirements.txt
 
+freeze:
+	@echo '❄️  Freezing'
+	@pip freeze | tr A-Z a-z | sort > requirements.txt
 
 ## Deployment
 deploy_production:
