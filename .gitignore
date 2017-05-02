@@ -1,0 +1,21 @@
+# ansible
+*.retry
+
+# vagrant
+.vagrant
+
+# python
+*.pyc
+__pycache__
+
+# database
+*.sqlite3
+
+# coverage
+.coverage
+
+# pytest
+.cache
+
+# Tox
+.tox

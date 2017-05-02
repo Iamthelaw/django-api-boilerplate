@@ -1,0 +1,118 @@
+---
+- hosts: all
+  become: true
+
+  pre_tasks:
+    - name: update apt cache
+      apt: update_cache=yes cache_valid_time=3600
+    - name: Creating important directories
+      file: path={{ item }} state=directory owner={{ user }}
+      with_items:
+        - /home/vagrant/.vim/colors
+        - /home/vagrant/log
+
+  vars:
+    - user: vagrant
+    - app_dir: /home/vagrant/project
+    - db_name: app_db
+    - db_password: vagrant
+
+  tasks:
+    - name: Ensure zsh, git, OpenSSL, and libssl are the latest versions
+      apt: name={{ item }} state=latest
+      with_items:
+        - git
+        - zsh
+        - curl
+        - openssl
+        - libssl-dev
+      tags: packages
+      register: core
+
+    - name: Cloning oh-my-zsh
+      git:
+        repo=https://github.com/robbyrussell/oh-my-zsh
+        dest=~/.oh-my-zsh
+      when: core|success
+      register: zsh
+      become_user: "{{ user }}"
+
+    - name: Download server configs from remotes
+      get_url: url={{ item.url }} dest={{ item.path }} force=yes
+      when: zsh|success
+      become_user: "{{ user }}"
+      with_items:
+          - { url: 'https://raw.githubusercontent.com/Iamthelaw/server-config/master/.zshrc', path: '~/.zshrc' }
+          - { url: 'https://raw.githubusercontent.com/Iamthelaw/server-config/master/.tmux.conf', path: '~/.tmux.conf' }
+          - { url: 'https://raw.githubusercontent.com/Iamthelaw/server-config/master/.vimrc', path: '~/.vimrc' }
+          - { url: 'https://raw.githubusercontent.com/mhartington/oceanic-next/master/colors/OceanicNext.vim', path: '~/.vim/colors/OceanicNext.vim' }
+
+    - name: Set vagrant user shell to zsh
+      user: name={{ user }} shell=/bin/zsh
+
+    - name: Install base packages
+      apt: name={{ item }} state=present
+      with_items:
+        - build-essential
+        - libpq-dev
+        - python-dev
+        - python-pip
+        - supervisor
+      tags: packages
+
+    - name: Upgrade pip
+      pip: name=pip state=latest
+      tags: packages
+
+    - name: Install global python dependencies
+      pip: name={{ item }} state=latest
+      with_items:
+        - flake8
+        - ipython
+
+    - name: Install PostgreSQL
+      apt: name={{ item }} state=installed
+      with_items:
+        - postgresql
+        - postgresql-contrib
+        - python-psycopg2
+      tags: packages
+
+    - name: Ensure the PostgreSQL service is running
+      service: name=postgresql state=started enabled=yes
+
+    - name: Install app requirements
+      pip: requirements={{ app_dir }}/requirements.txt
+
+    - name: Create postgres role and database for application
+      become_user: postgres
+      postgresql_user: name={{ user }} password={{ db_password }}
+
+    - name: Create database
+      become_user: postgres
+      postgresql_db: name={{ db_name }} owner={{ user }} encoding=UTF-8
+
+    - name: Run migrations
+      become_user: "{{ user }}"
+      django_manage: command=migrate app_path={{ app_dir }}
+
+    - name: Ensure supervisord is running
+      service: name=supervisor state=started
+
+    - name: Add supervisor config
+      shell: |
+        echo "[program:app]
+        command=/usr/local/bin/gunicorn --bind 0.0.0.0:8000 --capture-output --error-logfile /home/vagrant/log/gunicorn.log config.wsgi
+        directory={{ app_dir }}
+        user={{ user }}
+        autostart=true
+        autorestart=true
+        stdout_logfile=/home/vagrant/log/supervisor.log
+        redirect_stderr=true" > /etc/supervisor/conf.d/app.conf
+
+    - name: Add supervisor command
+      supervisorctl: name=app state=present
+
+    - name: Restart supervisor command
+      supervisorctl: name=app state=restarted
+
